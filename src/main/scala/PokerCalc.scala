@@ -37,6 +37,14 @@ object PokerCalc {
   }
 
 
+  def factorial(k : Int) : Long = if(k >= 2) (2 to k).product else 1
+
+  //n >= k
+  def binom(n : Int, k : Int) : Long ={
+    (n.toLong to (n.toLong - k.toLong + 1) by -1).product / factorial(k)
+  }
+
+
 
   implicit val suitIsShowable : Show[Suit] = {
     case Spades => "♠"
@@ -185,6 +193,7 @@ object PokerCalc {
     def tailOption : Option[List[A]] = PokerCalc.tailOption(lhs)
   }
 
+  //tested
   def hasStraight(cards : List[Card]) : Boolean = {
 
     def f(combo : List[Card], cards : List[Card]) : Option[List[Card]] = {
@@ -196,17 +205,13 @@ object PokerCalc {
         val minPrev = prev(min.value)
         val maxNext = next(max.value)
         val (mins, othersMin) = cards.partition(_.value == minPrev)
-        val (maxs, othersMax) = (mins.tailOption.getOrElse(Nil) ++ othersMin).partition(_.value == maxNext)
-        val others = maxs.tailOption.getOrElse(Nil) ++ othersMax
+        val (maxs, others) = othersMin.partition(_.value == maxNext)
         val minMax = for(min <- mins.headOption.map(List(_)); max <- maxs.headOption.map(List(_))) yield min ++ max
-        minMax.flatMap(x => f((x ++ combo).sortBy(_.value), others))
+        minMax.flatMap(x => f(x.head :: (combo ++ List(x.last)), others))
       }
     }
 
-    cards.map(c => c -> cards.filterNot(c_ => c == c_)).map{
-      case (card, others) =>
-        f(List(card), others)
-    }.exists(_.nonEmpty)
+    cards.map(c => f(List(c), cards.filterNot(c == _))).exists(_.nonEmpty)
   }
 
   //returns pairs with unique elements(so hasThreeOfAKind => hasTwoPairs is not true for all inputs)
@@ -338,7 +343,21 @@ object PokerCalc {
     }
   }
 
-  //def probWithinNextStraight(n : Int, playing : Int, )
+  def probWithinNextStraightFullDeck(n : Int) : Double = {
+    (0 until 4*4*4*4*4).map(x => {
+      val z0 = x % 4
+      val z1 = (x / 4) % 4
+      val z2 = (x / 16) % 4
+      val z3 = (x / 64) % 4
+      val z4 = (x / 256) % 4
+      binom(52-4-5-z0-z1-z2-z3-z4, n-5)//better way of calculating the sums
+    }
+    ).sum * 13D / binom(52, n)
+  }
+
+  //analytical solution to the general case ^^^ when there are some playing cards is painful to derive,
+  //use the LBN but make it more robust (error within bounds with particular probability) ?
+
 
   //==================================================
   //======= TESTS USING LAW OF LARGE NUMBERS =========
@@ -399,6 +418,11 @@ object PokerCalc {
     (0 until numberOfTests).map(_ => hasFourOfAKind(playing ++ drawCardsFromShuffledDeck(n, deck))).count(x => x).toDouble / numberOfTests
   }
 
+  def testStraightProbWithinNCardsWithPlayingCards(n : Int, numberOfTests : Int, playing : List[Card]) : Double = {
+    val deck = fullDeck.filter(x => !playing.contains(x))
+    (0 until numberOfTests).map(_ => hasStraight(playing ++ drawCardsFromShuffledDeck(n, deck))).count(x => x).toDouble / numberOfTests
+  }
+
 
   //assuming playing cards do not contain a pair
   def testPairProbWithinNCardsWithPlayingCards(n : Int, numberOfTests : Int, playing : List[Card]) : Double = {
@@ -415,6 +439,9 @@ object PokerCalc {
     val hand0 = Hand(Card(Diamonds, King), Card(Hearts, Three))
     val hand1 = Hand(Card(Diamonds, King), Card(Hearts, King))
     val playing0 = List(Card(Clubs, King), Card(Diamonds, Ace), Card(Hearts, King), Card(Clubs, Two), Card(Diamonds, Four), Card(Diamonds, Three))
+    val playing1 = List(Card(Clubs, Five), Card(Clubs, Seven), Card(Clubs, Eight), Card(Clubs, Nine), Card(Clubs, Jack), Card(Clubs, Queen))
+    //testBundle()
+    println(s"p8 = ${probWithinNextStraightFullDeck(5)} and ${testStraightProbWithinNCardsWithPlayingCards(5, 1000000, Nil)}")
     val p7 = probWithinNextFourOfAKind(5, 2, 1, 0)
     println(s"p7 = ${p7} and ${testFourOfAKindProbWithinNCardsWithPlayingCards(5, 1000000, hand1.cards.toList)}")
     val p6 = probWithinNextFourOfAKind(7, 0, 0, 0)
@@ -430,8 +457,20 @@ object PokerCalc {
     val p4 = probWithinNextThreeOfAKind(5, 2, 1)
     println(s"p4 = ${p4} and ${testThreeOfAKindProbWithinNCardsWithPlayingCards(5, 1000000, hand1.cards.toList)}")
 
-    //looks fine
-    (0 until 1000).foreach(_ => {val cards = drawCardsFromShuffledDeck(7, fullDeck); if(hasStraight(cards)) println(cards.show) else ()})
+  }
+
+
+  def testBundle() : Unit = {
+    val bundle = List(
+      List(Two, King, Ace, Three, Four),
+      List(Four, Five, Six, Seven, Eight),
+      List(Jack, Ten, Nine, Queen, King),
+      List(Four, Three, Two, Ace, King),
+      List(King, Queen, Jack, Ten, Nine),
+      List(Two, Three, Four, Five, Six)
+    )
+
+    println(bundle.map(_.map(x => Card(chooseRandom(suits)._1, x))).find(x => !hasStraight(x)).show)
   }
 
 }
