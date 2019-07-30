@@ -86,6 +86,20 @@ object PokerCalc {
   }
 
 
+  def parseCardTuple(str : String) : Option[List[Card]] = {
+    val regex = """ *\( *(.*) *\) *""".r
+    str match{
+      case regex(inner) =>
+        if(inner == "") Some(Nil)
+        else{
+          val regex = """([^,]+)""".r
+          regex.findAllIn(inner).toList.map(x => parseCard(x.trim)).sequence
+        }
+      case _ => None
+    }
+  }
+
+
   def parseCard(str : String) : Option[Card] ={
     for(v <- parseValue(str); s <- parseSuit(v._2)) yield Card(s, v._1)
   }
@@ -854,11 +868,41 @@ object PokerCalc {
   //=========================================
   //=========================================
 
+  def processCommand(cmd : String) : Unit = {
+    val simReg = "sim +( *\\([^\\)]*\\) *) +( *\\([^\\)]*\\) *) +(.*)".r
+    cmd match{
+      case simReg(com, player, others) =>
+        val comL = parseCardTuple(com)
+        val playerL = parseCardTuple(player)
+        comL match{
+          case None => println("failed parsing community cards in sim")
+          case Some(comL) =>
+            playerL match{
+              case None => println("failed parsing player cards in sim")
+              case Some(playerL) =>
+                val reg = " *\\([^\\)]*\\) *".r
+                reg.findAllIn(others).toList.map(parseCardTuple(_)).sequence match{
+                  case None => println("failed parsing other players in sim")
+                  case Some(others) =>
+                    println(s"community cards: ${comL.show}")
+                    println(s"player cards: ${playerL.show}")
+                    println(s"others cards: ${others.show}")
+                    println("simulating...")
+                    println(simulate(comL, playerL, others, allowDraw = false, 100000))
+                }
+            }
+        }
+      case _ => println("bad command")
+    }
+  }
+
   def main(args : Array[String]) : Unit = {
     test()
 
-    println(simulate(List(c"Ad", c"As"), List(c"Ac", c"Ah"), List(Nil, Nil), allowDraw = false, 100000))
-    println(simulate(List(c"2d", c"6d", c"Ad", c"3h"), List(c"Jd", c"4d"), List(List(c"Kd", c"Qd"), Nil), allowDraw = true, 100000, 7))
+    processCommand("sim (As) (Ad) () (Ks)")
+
+    //println(simulate(List(c"Ad", c"As"), List(c"Ac", c"Ah"), List(Nil, Nil), allowDraw = false, 100000))
+    //println(simulate(List(c"2d", c"6d", c"Ad", c"3h"), List(c"Jd", c"4d"), List(List(c"Kd", c"Qd"), Nil), allowDraw = true, 100000, 7))
     //println(simulate(Nil, List(c"Ac", c"Ah"), List(Nil, Nil, Nil, Nil), allowDraw = false, 100000))
     //println(simulate(Nil, Nil, List(Nil, Nil, Nil), allowDraw = false, 100000, 10))
 
