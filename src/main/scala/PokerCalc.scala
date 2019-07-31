@@ -1097,6 +1097,7 @@ object PokerCalc {
 
   def loop() : Unit = {
     println("Entering loop")
+    println("Type 'help' for details")
     val s = new Scanner(System.in)
     var shouldStop = false
     while (!shouldStop && s.hasNext()){
