@@ -951,14 +951,14 @@ object PokerCalc {
       case helpReg() =>
         println(
           s"""
-            |Global varibles:
+            |${ansi.a(Attribute.UNDERLINE).a("Global variables").a(Attribute.RESET).toString}:
             |  draw[true|false] --allow draws or not
             |  num_iter[Integer] --number of iterations in one simulation
             |  num_sim[Integer] --number of simulations when asking for mean value and standard deviation
             |  player[List Of Cards] --sets the list of cards the player has(may be partially filled)
             |  com[List of Cards] --sets the list of community cards(also may be partially filled)
             |  others[Multiple Lists of Cards] --sets the of cards for each opponent(same here)
-            |Commands:
+            |${ansi.a(Attribute.UNDERLINE).a("Commands").a(Attribute.RESET).toString}:
             |  help --shows this message
             |  print_locals --prints all local variables
             |  draw [true|false] --sets corresponding global variable
@@ -972,7 +972,7 @@ object PokerCalc {
             |  sim mean --same as above but does it 'num_sim' times and returns mean value and deviation
             |  [Name of Some Combination] [Integer] --calculates possibility of achieving given combination within given number of drawn cards
             |  [Name Of Some Combination] [Integer] mean --same as above but does it 'num_sim' times and returns mean value and deviation
-            |Examples:
+            |${ansi.a(Attribute.UNDERLINE).a("Examples").a(Attribute.RESET).toString}:
             |  draw false --do not count draws as positive outcomes in simulations
             |  player () --sets all player cards to be unknown
             |  player (${c"A♠".show}, ${c"A♣".show}) --sets player cards as given
@@ -986,13 +986,13 @@ object PokerCalc {
             |    returns probability of getting a pair
             |  royal_flush 7 mean -- :) oh boy, that's quit impossible, set num_iter and num_sim to be high enough for this,
             |    to given better results
-            |How To Form A Card
+            |${ansi.a(Attribute.UNDERLINE).a("How To Form A Card").a(Attribute.RESET).toString}
             |  Value goes first then a suit without spaces: ${c"10♦".show}, ${c"J♥".show}
             |  Possible values: 2, 3, 4, 5, 6, 7, 8, 9, 10, j, J, q, Q, k, K, a, A
             |  Possible suits: ♠, s, ♣, c, ♦, d, ♥, h
-            |How To Form A List
+            |${ansi.a(Attribute.UNDERLINE).a("How To Form A List").a(Attribute.RESET).toString}
             |  It may be empty: (), or filled with cards, separated by commas: (${c"A♠".show}, ${c"A♣".show})
-            |How To Form Multiple Lists
+            |${ansi.a(Attribute.UNDERLINE).a("How To Form Multiple Lists").a(Attribute.RESET).toString}
             |  Just stack them together separated by at least one space and no commas:
             |    () (${c"A♠".show}, ${c"A♣".show}) ()
             |
