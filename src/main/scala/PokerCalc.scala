@@ -1,3 +1,5 @@
+import java.util.Scanner
+
 import cats.Show
 
 import scala.util.Random
@@ -545,7 +547,7 @@ object PokerCalc {
   type ComboTy = List[Card] => List[List[Card]]
   type BestComboTy = (List[List[Card]], List[List[Card]]) => Option[Boolean]
 
-  val scoredCombos = Map(
+  val scoredCombos: Map[Int, List[Card] => List[List[Card]]] = Map(
     10 -> findAllRoyalFlush _,
     9 -> findAllStraightFlush _,
     8 -> findAllFourOfAKind _,
@@ -559,7 +561,7 @@ object PokerCalc {
   )
 
   //finds (if possible) best combo if types of the combos are the same
-  val findWinnerSameCombo = Map(
+  val findWinnerSameCombo: Map[Int, ((List[List[Card]], List[Card]), (List[List[Card]], List[Card])) => Option[Boolean]] = Map(
     10 -> bestComboRoyalFlush _,
     9 -> bestComboStraightFlush _,
     8 -> bestComboFourOfAKind _,
@@ -570,6 +572,18 @@ object PokerCalc {
     3 -> bestComboTwoPairs _,
     2 -> bestComboPair _,
     1 -> bestComboHighHand _
+  )
+
+  val hasCombo: Map[String, List[Card] => Boolean] = Map(
+    "pair" -> hasPair _,
+    "two_pairs" -> hasTwoPairs _,
+    "set" -> hasThreeOfAKind _,
+    "straight" -> hasStraight _,
+    "flush" -> hasFlush _,
+    "full_house" -> hasFullHouse _,
+    "quads" -> hasFourOfAKind _,
+    "straight_flush" -> hasStraightFlush _,
+    "royal_flush" -> hasRoyalFlush _
   )
 
   def findMaxCombo(cards : List[Card]) : (Int, List[List[Card]]) = {
@@ -641,10 +655,48 @@ object PokerCalc {
     win.toDouble / n
   }
 
+  def simulateCombo(communityCards : List[Card], playerCards : List[Card], opponentsCards : List[List[Card]], hasCombo : List[Card] => Boolean, within : Int,  n : Int) : Double = {
+    val threads = 8
+    var win = 0
+
+    val deck = fullDeck.filterNot(x => communityCards.contains(x) || playerCards.contains(x) || opponentsCards.flatten.contains(x))
+
+    val features = (0 until threads).map{i =>
+      Future{
+        var win = 0
+        for(_ <- n/threads * i until n/threads * (i + 1)){
+          if(hasCombo(playerCards ++ communityCards ++ chooseRandom(deck, within)._1)) win += 1
+        }
+
+        win
+      }
+    }
+
+    for(l <- Await.result(Future.sequence(features), Duration("Inf")).toList){
+      win += l
+    }
+
+    win.toDouble / n
+  }
+
   def simulate(communityCards : List[Card], playerCards : List[Card], opponentsCards : List[List[Card]], allowDraw : Boolean, n : Int, k : Int) : (Double, Double) = {
     val simulations = new Array[Double](k)
     for (i <- 0 until k){
       simulations(i) = simulate(communityCards, playerCards, opponentsCards, allowDraw, n)
+    }
+
+    val mean = simulations.sum / k
+    var v = 0.0
+    for (i <- 0 until k){
+      v += (simulations(i) - mean) * (simulations(i) - mean)
+    }
+    mean -> math.sqrt(v)
+  }
+
+  def simulateCombo(communityCards : List[Card], playerCards : List[Card], opponentsCards : List[List[Card]], hasCombo : List[Card] => Boolean, within : Int,  n : Int, k : Int) : (Double, Double) = {
+    val simulations = new Array[Double](k)
+    for (i <- 0 until k){
+      simulations(i) = simulateCombo(communityCards, playerCards, opponentsCards, hasCombo, within, n)
     }
 
     val mean = simulations.sum / k
@@ -868,10 +920,26 @@ object PokerCalc {
   //=========================================
   //=========================================
 
+  var allowDraw : Boolean = true
+  var n : Int = 100000
+  var k : Int = 10
+
+  var player : List[Card] = Nil
+  var community : List[Card] = Nil
+  var otherPlayers : List[List[Card]] = List(Nil)
+
   def processCommand(cmd : String) : Unit = {
-    val simReg = "sim +( *\\([^\\)]*\\) *) +( *\\([^\\)]*\\) *) +(.*)".r
+    println("-------------")
+    val cardsReg = " *cards +( *\\([^\\)]*\\) *) +( *\\([^\\)]*\\) *) +(.*)".r
+    val allowDrawReg = " *draw (.*)".r
+    val nReg = " *n (.*)".r
+    val kReg = " *k (.*)".r
+    val simReg = " *sim".r
+    val simReg2 = " *sim +mean".r
+    val hasReg = " *(\\w+) +(\\d+)".r
+    val hasReg2 = " *(\\w+) +(\\d+) +mean".r
     cmd match{
-      case simReg(com, player, others) =>
+      case cardsReg(com, player, others) =>
         val comL = parseCardTuple(com)
         val playerL = parseCardTuple(player)
         comL match{
@@ -883,23 +951,78 @@ object PokerCalc {
                 val reg = " *\\([^\\)]*\\) *".r
                 reg.findAllIn(others).toList.map(parseCardTuple(_)).sequence match{
                   case None => println("failed parsing other players in sim")
-                  case Some(others) =>
+                  case Some(othersL) =>
                     println(s"community cards: ${comL.show}")
                     println(s"player cards: ${playerL.show}")
-                    println(s"others cards: ${others.show}")
-                    println("simulating...")
-                    println(simulate(comL, playerL, others, allowDraw = false, 100000))
+                    println(s"others cards: ${othersL.show}")
+                    this.player = playerL
+                    this.community = comL
+                    this.otherPlayers = othersL
                 }
             }
         }
+      case allowDrawReg(draw) =>
+        try{
+          val d = draw.toBoolean
+          allowDraw = d
+          println("set allowDraw to '" + d + "'")
+        }catch{
+          case _ : IllegalArgumentException => println("failed parsing bool argument for 'draw'")
+        }
+      case nReg(n) =>
+        try{
+          val d = n.toInt
+          this.n = d
+          println("set n to '" + d + "'")
+        }catch{
+          case _ : NumberFormatException => println("failed parsing Int argument for 'n'")
+        }
+      case kReg(k) =>
+        try{
+          val d = k.toInt
+          this.k = d
+          println("set k to '" + d + "'")
+        }catch{
+          case _ : NumberFormatException => println("failed parsing Int argument for 'n'")
+        }
+      case simReg() =>
+        println("simulating...")
+        println("probability: " + simulate(community, player, otherPlayers, allowDraw, n))
+      case simReg2() =>
+        println("simulating mean...")
+        val sim = simulate(community, player, otherPlayers, allowDraw, n, k)
+        println("mean probability: " + sim._1 + ", mean deviation: " + sim._2)
+      case hasReg(name, within) if hasCombo.keys.toList.contains(name) =>
+        println("simulating combo...")
+        val sim = simulateCombo(community, player, otherPlayers, hasCombo(name), within.toInt, n)
+        println("probability: " + sim)
+      case hasReg2(name, within) if hasCombo.keys.toList.contains(name) =>
+        println("simulating mean combo...")
+        val sim = simulateCombo(community, player, otherPlayers, hasCombo(name), within.toInt, n, k)
+        println("mean probability: " + sim._1 + ", mean deviation: " + sim._2)
       case _ => println("bad command")
     }
+    println("-------------")
+  }
+
+  def loop() : Unit = {
+    println("Entering loop")
+    val s = new Scanner(System.in)
+    var shouldStop = false
+    while (!shouldStop){
+      val cmd = s.nextLine()
+      if(cmd == "quit" || cmd == "exit")
+        shouldStop = true
+      else
+        processCommand(cmd)
+    }
+    println("Byeee")
   }
 
   def main(args : Array[String]) : Unit = {
     test()
 
-    processCommand("sim (As) (Ad) () (Ks)")
+    loop()
 
     //println(simulate(List(c"Ad", c"As"), List(c"Ac", c"Ah"), List(Nil, Nil), allowDraw = false, 100000))
     //println(simulate(List(c"2d", c"6d", c"Ad", c"3h"), List(c"Jd", c"4d"), List(List(c"Kd", c"Qd"), Nil), allowDraw = true, 100000, 7))
