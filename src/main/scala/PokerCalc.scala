@@ -606,6 +606,7 @@ object PokerCalc {
   }
 
   //Some(true) if 'winner' wins, Some(false) if 'looser' wins :P , None if draw
+  //all cards must be fully filled
   def wins(winner : List[Card], looser : List[Card]) : Option[Boolean] = {
     val maxWinner = findMaxCombo(winner)
     val maxLooser = findMaxCombo(looser)
@@ -618,6 +619,7 @@ object PokerCalc {
       findWinnerSameCombo(maxWinner._1)(maxWinner._2 -> winner, maxLooser._2 -> looser)
     }
   }
+
 
   //all arguments may be underfilled
   def wins(communityCards : List[Card], playerCards : List[Card], opponentsCards : List[List[Card]], allowDraw : Boolean) : Boolean = {
