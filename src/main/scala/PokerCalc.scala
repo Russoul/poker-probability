@@ -5,6 +5,10 @@ import cats.Show
 import scala.util.Random
 import cats.implicits._
 import cats.instances._
+import org.fusesource.jansi.AnsiConsole
+import org.fusesource.jansi.Ansi._
+import org.fusesource.jansi.Ansi.Color._
+
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
@@ -134,7 +138,7 @@ object PokerCalc {
   }
 
   implicit val cardIsShowable : Show[Card] = {
-    case Card(suit, value) => implicitly[Show[Value]].show(value) + implicitly[Show[Suit]].show(suit)
+    case Card(suit, value) => ansi.render(s"@|green ${implicitly[Show[Value]].show(value)}${implicitly[Show[Suit]].show(suit)}|@").toString
   }
 
   val valueCount = 13
@@ -921,8 +925,8 @@ object PokerCalc {
   //=========================================
 
   var allowDraw : Boolean = true
-  var n : Int = 100000
-  var k : Int = 10
+  var numIter : Int = 100000
+  var numSim : Int = 10
 
   var player : List[Card] = Nil
   var community : List[Card] = Nil
@@ -930,27 +934,113 @@ object PokerCalc {
 
   def processCommand(cmd : String) : Unit = {
     println("-------------")
-    val cardsReg = " *cards +( *\\([^\\)]*\\) *) +( *\\([^\\)]*\\) *) +(.*)".r
-    val allowDrawReg = " *draw (.*)".r
-    val nReg = " *n (.*)".r
-    val kReg = " *k (.*)".r
-    val simReg = " *sim".r
-    val simReg2 = " *sim +mean".r
-    val hasReg = " *(\\w+) +(\\d+)".r
-    val hasReg2 = " *(\\w+) +(\\d+) +mean".r
+    val cardsReg = " *cards +( *\\([^\\)]*\\) *) +( *\\([^\\)]*\\) *) +(.*) *".r
+    val playerReg = " *player +( *\\([^\\)]*\\) *) *".r
+    val comReg = " *com +( *\\([^\\)]*\\) *) *".r
+    val othersReg = "others *(.*) *".r
+    val allowDrawReg = " *draw (.*) *".r
+    val nReg = " *num_iter (.*) *".r
+    val kReg = " *num_sim (.*) *".r
+    val simReg = " *sim *".r
+    val simReg2 = " *sim +mean *".r
+    val hasReg = " *(\\w+) +(\\d+) *".r
+    val hasReg2 = " *(\\w+) +(\\d+) +mean *".r
+    val printReg = " *print_locals *".r
+    val helpReg = " *help *".r
     cmd match{
+      case helpReg() =>
+        println(
+          s"""
+            |Global varibles:
+            |  draw[true|false] --allow draws or not
+            |  num_iter[Integer] --number of iterations in one simulation
+            |  num_sim[Integer] --number of simulations when asking for mean value and standard deviation
+            |  player[List Of Cards] --sets the list of cards the player has(may be partially filled)
+            |  com[List of Cards] --sets the list of community cards(also may be partially filled)
+            |  others[Multiple Lists of Cards] --sets the of cards for each opponent(same here)
+            |Commands:
+            |  help --shows this message
+            |  print_locals --prints all local variables
+            |  draw [true|false] --sets corresponding global variable
+            |  num_iter [Integer] --sets corresponding global variable
+            |  num_sim [Integer] --sets corresponding global variable
+            |  player [List Of Cards] --sets corresponding global variable
+            |  com [List Of Cards] --sets corresponding global variable
+            |  others [Multiple Lists Of Cards] --sets corresponding global variable
+            |  cards [List Of Cards] [List Of Cards] [Multiple Lists Of Cards] --sets community, player and other players cards accordingly
+            |  sim --simulates the game using given global variables
+            |  sim mean --same as above but does it 'num_sim' times and returns mean value and deviation
+            |  [Name of Some Combination] [Integer] --calculates possibility of achieving given combination within given number of drawn cards
+            |  [Name Of Some Combination] [Integer] mean --same as above but does it 'num_sim' times and returns mean value and deviation
+            |Examples:
+            |  draw false --do not count draws as positive outcomes in simulations
+            |  player () --sets all player cards to be unknown
+            |  player (${c"A♠".show}, ${c"A♣".show}) --sets player cards as given
+            |  others () (${c"K♥".show}) (${c"2♦".show}) --sets cards for each of the 3 players,
+            |   cards of the first player are unknown, cards of the other two are partially known
+            |  cards () () () () () () () --sets community cards, player cards and cards of the other 5 players to be unknown
+            |  num_iter 1000000
+            |  num_sim 100
+            |  sim mean --simulates the game a few times with given global variables
+            |  pair 5 --simulates the process of drawing 5 cards from the deck (assuming known community, player and other cards),
+            |    returns probability of getting a pair
+            |  royal_flush 7 mean -- :) oh boy, that's quit impossible, set num_iter and num_sim to be high enough for this,
+            |    to given better results
+            |How To Form A Card
+            |  Value goes first then a suit without spaces: ${c"10♦".show}, ${c"J♥".show}
+            |  Possible values: 2, 3, 4, 5, 6, 7, 8, 9, 10, j, J, q, Q, k, K, a, A
+            |  Possible suits: ♠, s, ♣, c, ♦, d, ♥, h
+            |How To Form A List
+            |  It may be empty: (), or filled with cards, separated by commas: (${c"A♠".show}, ${c"A♣".show})
+            |How To Form Multiple Lists
+            |  Just stack them together separated by at least one space and no commas:
+            |    () (${c"A♠".show}, ${c"A♣".show}) ()
+            |
+            |
+          """.stripMargin)
+      //♠
+      //♥
+      //♦
+      //♣
+      case printReg() =>
+        println("player Cards: " + player.show)
+        println("community cards: " + community.show)
+        println("other players' cards: " + otherPlayers.show)
+        println("num_iter: " + numIter)
+        println("num_sim: " + numSim)
+        println("draw " + allowDraw)
+      case playerReg(player) =>
+        parseCardTuple(player) match{
+          case None => println("failed parsing player cards in 'player")
+          case Some(cards) => this.player = cards
+            println(s"player cards: ${cards.show}")
+        }
+      case comReg(com) =>
+        parseCardTuple(com) match{
+          case None => println("failed parsing community cards in 'com")
+          case Some(cards) => this.community = cards
+            println(s"community cards: ${cards.show}")
+        }
+      case othersReg(others) =>
+        val reg = " *\\([^\\)]*\\) *".r
+        reg.findAllIn(others).toList.map(parseCardTuple(_)).sequence match{
+          case None => println("failed parsing other players in 'others'")
+          case Some(othersL) =>
+            println(s"others cards: ${othersL.show}")
+            this.otherPlayers = othersL
+        }
       case cardsReg(com, player, others) =>
         val comL = parseCardTuple(com)
         val playerL = parseCardTuple(player)
         comL match{
-          case None => println("failed parsing community cards in sim")
+          case None => println("failed parsing community cards in 'cards'")
           case Some(comL) =>
             playerL match{
-              case None => println("failed parsing player cards in sim")
+              case None => println("failed parsing player cards in 'cards'")
               case Some(playerL) =>
                 val reg = " *\\([^\\)]*\\) *".r
                 reg.findAllIn(others).toList.map(parseCardTuple(_)).sequence match{
-                  case None => println("failed parsing other players in sim")
+                  case None => println("failed parsing other players in 'cards'")
                   case Some(othersL) =>
                     println(s"community cards: ${comL.show}")
                     println(s"player cards: ${playerL.show}")
@@ -972,35 +1062,35 @@ object PokerCalc {
       case nReg(n) =>
         try{
           val d = n.toInt
-          this.n = d
+          this.numIter = d
           println("set n to '" + d + "'")
         }catch{
-          case _ : NumberFormatException => println("failed parsing Int argument for 'n'")
+          case _ : NumberFormatException => println("failed parsing Int argument for 'num_iter'")
         }
       case kReg(k) =>
         try{
           val d = k.toInt
-          this.k = d
+          this.numSim = d
           println("set k to '" + d + "'")
         }catch{
-          case _ : NumberFormatException => println("failed parsing Int argument for 'n'")
+          case _ : NumberFormatException => println("failed parsing Int argument for 'num_sim'")
         }
       case simReg() =>
         println("simulating...")
-        println("probability: " + simulate(community, player, otherPlayers, allowDraw, n))
+        println("probability: " + simulate(community, player, otherPlayers, allowDraw, numIter))
       case simReg2() =>
         println("simulating mean...")
-        val sim = simulate(community, player, otherPlayers, allowDraw, n, k)
+        val sim = simulate(community, player, otherPlayers, allowDraw, numIter, numSim)
         println("mean probability: " + sim._1 + ", mean deviation: " + sim._2)
       case hasReg(name, within) if hasCombo.keys.toList.contains(name) =>
         println("simulating combo...")
-        val sim = simulateCombo(community, player, otherPlayers, hasCombo(name), within.toInt, n)
+        val sim = simulateCombo(community, player, otherPlayers, hasCombo(name), within.toInt, numIter)
         println("probability: " + sim)
       case hasReg2(name, within) if hasCombo.keys.toList.contains(name) =>
         println("simulating mean combo...")
-        val sim = simulateCombo(community, player, otherPlayers, hasCombo(name), within.toInt, n, k)
+        val sim = simulateCombo(community, player, otherPlayers, hasCombo(name), within.toInt, numIter, numSim)
         println("mean probability: " + sim._1 + ", mean deviation: " + sim._2)
-      case _ => println("bad command")
+      case _ => println("bad command, enter: 'help' for details")
     }
     println("-------------")
   }
@@ -1009,20 +1099,26 @@ object PokerCalc {
     println("Entering loop")
     val s = new Scanner(System.in)
     var shouldStop = false
-    while (!shouldStop){
+    while (!shouldStop && s.hasNext()){
       val cmd = s.nextLine()
       if(cmd == "quit" || cmd == "exit")
         shouldStop = true
-      else
+      else{
+        println("vvvv")
         processCommand(cmd)
+      }
+
     }
     println("Byeee")
   }
 
   def main(args : Array[String]) : Unit = {
+    AnsiConsole.systemInstall()
     test()
 
     loop()
+
+    AnsiConsole.systemUninstall()
 
     //println(simulate(List(c"Ad", c"As"), List(c"Ac", c"Ah"), List(Nil, Nil), allowDraw = false, 100000))
     //println(simulate(List(c"2d", c"6d", c"Ad", c"3h"), List(c"Jd", c"4d"), List(List(c"Kd", c"Qd"), Nil), allowDraw = true, 100000, 7))
@@ -1082,9 +1178,9 @@ object PokerCalc {
     val testBundle2 = bundle2.map(_.map(x => Card(chooseRandom(suits)._1, x))).find(x => hasStraight(x))
 
     if(testBundle1.isEmpty && testBundle2.isEmpty){
-      println("testHasStraight - ok")
+      println(s"testHasStraight - ${ansi.render("@|green ok|@")}")
     }else{
-      println("testHasStraight - failed")
+      println(s"testHasStraight - ${ansi.render("@|red failed|@")}")
       println("must form a straight " + testBundle1.show)
       println("must not form a straight " + testBundle2.show)
     }
@@ -1105,9 +1201,9 @@ object PokerCalc {
     val testBundle2 = bundle2.find(x => hasFullHouse(x))
 
     if(testBundle1.isEmpty && testBundle2.isEmpty){
-      println("testHasFullHouse - ok")
+      println(s"testHasFullHouse - ${ansi.render("@|green ok|@")}")
     }else{
-      println("testHasFullHouse - failed")
+      println(s"testHasFullHouse - ${ansi.render("@|red failed|@")}")
       println("must form a full house " + testBundle1.show)
       println("must not form a full house " + testBundle2.show)
     }
@@ -1130,9 +1226,9 @@ object PokerCalc {
     val testBundle2 = bundle2.map(_.map(x => Card(x, chooseRandom(values)._1))).find(x => hasFlush(x))
 
     if(testBundle1.isEmpty && testBundle2.isEmpty){
-      println("testHasFlush - ok")
+      println(s"testHasFlush - ${ansi.render("@|green ok|@")}")
     }else{
-      println("testHasFlush - failed")
+      println(s"testHasFlush - ${ansi.render("@|red failed|@")}")
       println("must form a flush " + testBundle1.show)
       println("must not form a flush " + testBundle2.show)
     }
@@ -1151,9 +1247,9 @@ object PokerCalc {
     val testBundle2 = bundle2.map(_.map(x => Card(Clubs, x))).find(x => hasRoyalFlush(x))
 
     if(testBundle1.isEmpty && testBundle2.isEmpty){
-      println("testHasRoyalFlush - ok")
+      println(s"testHasRoyalFlush - ${ansi.render("@|green ok|@")}")
     }else{
-      println("testHasRoyalFlush - failed")
+      println(s"testHasRoyalFlush - ${ansi.render("@|red failed|@")}")
       println("must form a royal flush " + testBundle1.show)
       println("must not form a royal flush " + testBundle2.show)
     }
@@ -1175,9 +1271,9 @@ object PokerCalc {
 
 
     if(testBundle1.isEmpty && testBundle2.isEmpty){
-      println("testHasFourOfAKind - ok")
+      println(s"testHasFourOfAKind - ${ansi.render("@|green ok|@")}")
     }else{
-      println("testHasFourOfAKind - failed")
+      println(s"testHasFourOfAKind - ${ansi.render("@|red failed|@")}")
       println("must form a four of a kind " + testBundle1.show)
       println("must not form a four of a kind " + testBundle2.show)
     }
@@ -1220,9 +1316,9 @@ object PokerCalc {
     val testBundle3 = bundle3.map(b => b -> wins(b._1 ++ b._2, b._1 ++ b._3)).find(_._2.nonEmpty)
 
     if(testBundle1.isEmpty && testBundle2.isEmpty && testBundle3.isEmpty){
-      println("testWins - ok")
+      println(s"testWins - ${ansi.render("@|green ok|@")}")
     }else{
-      println("testWins - failed")
+      println(s"testWins - ${ansi.render("@|red failed|@")}")
       println("left must win " + testBundle1.map(_._1).show)
       println("left must loose " + testBundle2.map(_._1).show)
       println("draw " + testBundle3.map(_._1).show)
