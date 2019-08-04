@@ -781,7 +781,7 @@ object PokerCalc {
       val simReg2 = " *sim +mean *".r
       val hasReg = " *(\\w+) +(\\d+) *".r
       val hasReg2 = " *(\\w+) +(\\d+) +mean *".r
-      val printReg = " *print_locals *".r
+      val printReg = " *print_globals *".r
       val helpReg = " *help *".r
 
       (cmd match{
@@ -797,7 +797,7 @@ object PokerCalc {
                |  others[Multiple Lists of Cards] --sets the of cards for each opponent(same here)
                |${ansi.a(Attribute.UNDERLINE).a("Commands").a(Attribute.RESET).toString}:
                |  help --shows this message
-               |  print_locals --prints all local variables
+               |  print_globals --prints all global variables
                |  draw [true|false] --sets corresponding global variable
                |  num_iter [Integer] --sets corresponding global variable
                |  num_sim [Integer] --sets corresponding global variable
