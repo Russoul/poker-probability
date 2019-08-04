@@ -832,8 +832,17 @@ object PokerCalc {
                |${ansi.a(Attribute.UNDERLINE).a("How To Form Multiple Lists").a(Attribute.RESET).toString}
                |  Just stack them together separated by at least one space and no commas:
                |    () (${c"A♠".show}, ${c"A♣".show}) ()
+               |${ansi.a(Attribute.UNDERLINE).a("Names Of Combinations").a(Attribute.RESET).toString}
+               |  pair
+               |  two_pairs
+               |  set
+               |  straight
+               |  flush
+               |  full_house
+               |  quads
+               |  straight_flush
+               |  royal_flush
                |
-            |
           """.stripMargin)
         case printReg() =>
           for {
