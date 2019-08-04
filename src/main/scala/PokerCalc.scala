@@ -9,7 +9,9 @@ import org.fusesource.jansi.AnsiConsole
 import org.fusesource.jansi.Ansi._
 import org.fusesource.jansi.Ansi.Color._
 import Lib._
-
+import cats.data.StateT
+import cats.effect.IO
+import monocle.macros.Lenses
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
@@ -504,86 +506,75 @@ object PokerCalc {
   import scala.concurrent.ExecutionContext.Implicits.global
 
   def simulate(communityCards : List[Card], playerCards : List[Card], opponentsCards : List[List[Card]], allowDraw : Boolean, n : Int) : Double = {
-    val threads = 8
-    var win = 0
+    val threads = Runtime.getRuntime.availableProcessors()
 
     val features = (0 until threads).map{i =>
       Future{
-        var win = 0
-        for(_ <- n/threads * i until n/threads * (i + 1)){
-          if(wins(communityCards, playerCards, opponentsCards, allowDraw)) win += 1
+        (n/threads * i until n/threads * (i + 1)).foldLeft(0){
+          case (ac, _) =>
+            ac + (if (wins(communityCards, playerCards, opponentsCards, allowDraw))
+              1
+             else
+              0
+            )
         }
-
-        win
       }
     }
 
-    for(l <- Await.result(Future.sequence(features), Duration("Inf")).toList){
-      win += l
-    }
-
-    win.toDouble / n
+    Await.result(Future.sequence(features), Duration("Inf")).toList.sum.toDouble / n
   }
 
   def simulateCombo(communityCards : List[Card], playerCards : List[Card], opponentsCards : List[List[Card]], hasCombo : List[Card] => Boolean, within : Int,  n : Int) : Double = {
-    val threads = 8
-    var win = 0
+    val threads = Runtime.getRuntime.availableProcessors()
 
     val deck = fullDeck.filterNot(x => communityCards.contains(x) || playerCards.contains(x) || opponentsCards.flatten.contains(x))
 
     val features = (0 until threads).map{i =>
       Future{
-        var win = 0
-        for(_ <- n/threads * i until n/threads * (i + 1)){
-          if(hasCombo(playerCards ++ communityCards ++ chooseRandom(deck, within)._1)) win += 1
+        (n/threads * i until n/threads * (i + 1)).foldLeft(0){
+          case (ac, _) =>
+            ac + (if(hasCombo(playerCards ++ communityCards ++ chooseRandom(deck, within)._1))
+              1
+            else 0)
         }
-
-        win
       }
     }
 
-    for(l <- Await.result(Future.sequence(features), Duration("Inf")).toList){
-      win += l
-    }
-
-    win.toDouble / n
+    Await.result(Future.sequence(features), Duration("Inf")).toList.sum.toDouble / n
   }
 
   def simulate(communityCards : List[Card], playerCards : List[Card], opponentsCards : List[List[Card]], allowDraw : Boolean, n : Int, k : Int) : (Double, Double) = {
-    val simulations = new Array[Double](k)
-    for (i <- 0 until k){
-      simulations(i) = simulate(communityCards, playerCards, opponentsCards, allowDraw, n)
-    }
+    val simulations = for (_ <- 0 until k) yield simulate(communityCards, playerCards, opponentsCards, allowDraw, n)
 
     val mean = simulations.sum / k
-    var v = 0.0
-    for (i <- 0 until k){
-      v += (simulations(i) - mean) * (simulations(i) - mean)
+    val variance = simulations.foldLeft(0.0){
+      case (ac, x) => ac + (x - mean) * (x - mean)
     }
-    mean -> math.sqrt(v)
+
+    mean -> math.sqrt(variance)
   }
 
   def simulateCombo(communityCards : List[Card], playerCards : List[Card], opponentsCards : List[List[Card]], hasCombo : List[Card] => Boolean, within : Int,  n : Int, k : Int) : (Double, Double) = {
-    val simulations = new Array[Double](k)
-    for (i <- 0 until k){
-      simulations(i) = simulateCombo(communityCards, playerCards, opponentsCards, hasCombo, within, n)
-    }
+
+    val simulations = for (_ <- 0 until k) yield simulateCombo(communityCards, playerCards, opponentsCards, hasCombo, within, n)
 
     val mean = simulations.sum / k
-    var v = 0.0
-    for (i <- 0 until k){
-      v += (simulations(i) - mean) * (simulations(i) - mean)
+    val variance = simulations.foldLeft(0.0){
+      case (ac, x) => ac + (x - mean) * (x - mean)
     }
-    mean -> math.sqrt(v)
+
+    mean -> math.sqrt(variance)
   }
+
+  //==================================================
+  //============ Some analytic solutions =============
+  //==================================================
 
   //prob of another pair when next card is drawn from the deck, assuming playing cards do not contain any combo
   //checked
   def probNextPair(playing : Int) : Double = {
     playing * 3D / (52 - playing)
   }
-
-
 
   //prob of another pair but not set when next card is drawn from the deck, assuming playing cards do not contain any combo greater than two pairs
   //checked
@@ -707,32 +698,6 @@ object PokerCalc {
   //======= TESTS USING LAW OF LARGE NUMBERS =========
   //==================================================
 
-  //returns chosen object and all other objects
-  //obj must be nonEmpty
-  def chooseRandom[A](objs : List[A]) : (A, List[A]) = {
-    val randIndex = new Random().nextInt(objs.size)
-    def f(objs : List[A], i : Int = 0, others : List[A] = Nil) : List[A] = {
-      objs match{
-        case x :: xs if i != randIndex => f(xs, i + 1, x :: others)
-        case x :: xs => x :: f(xs, i + 1, others)
-        case Nil => others
-      }
-    }
-
-    val headTail = f(objs)
-    (headTail.head, headTail.tail)
-  }
-
-  def chooseRandom[A](objs : List[A], n : Int) : (List[A], List[A]) = {
-    if(n > objs.size) throw new Exception
-
-    if(n == 0) Nil -> objs
-    else{
-      val (a, as) = chooseRandom(objs)
-      chooseRandom(as, n - 1).fstUpdated(a :: _)
-    }
-
-  }
 
   def drawCardsFromShuffledDeck(n : Int, deck : List[Card]) : List[Card] = {
     if(n == 0) Nil
@@ -778,7 +743,6 @@ object PokerCalc {
     (0 until numberOfTests).map(_ => hasStraight(playing ++ drawCardsFromShuffledDeck(n, deck))).count(x => x).toDouble / numberOfTests
   }
 
-
   //assuming playing cards do not contain a pair
   def testPairProbWithinNCardsWithPlayingCards(n : Int, numberOfTests : Int, playing : List[Card]) : Double = {
     val deck = fullDeck.filter(x => !playing.contains(x))
@@ -790,200 +754,224 @@ object PokerCalc {
   //=========================================
   //=========================================
 
-  var allowDraw : Boolean = true
-  var numIter : Int = 100000
-  var numSim : Int = 10
+  import monocle.Lens
+  import monocle.macros.GenLens
+  import monocle.macros.syntax.lens._
 
-  var player : List[Card] = Nil
-  var community : List[Card] = Nil
-  var otherPlayers : List[List[Card]] = List(Nil)
+  @Lenses case class CmdState(allowDraw : Boolean,
+                         numIter : Int,
+                         numSim : Int,
+                         player : List[Card],
+                         community : List[Card],
+                         otherPlayers : List[List[Card]])
 
-  def processCommand(cmd : String) : Unit = {
-    println("-------------")
-    val cardsReg = " *cards +( *\\([^\\)]*\\) *) +( *\\([^\\)]*\\) *) +(.*) *".r
-    val playerReg = " *player +( *\\([^\\)]*\\) *) *".r
-    val comReg = " *com +( *\\([^\\)]*\\) *) *".r
-    val othersReg = "others *(.*) *".r
-    val allowDrawReg = " *draw (.*) *".r
-    val nReg = " *num_iter (.*) *".r
-    val kReg = " *num_sim (.*) *".r
-    val simReg = " *sim *".r
-    val simReg2 = " *sim +mean *".r
-    val hasReg = " *(\\w+) +(\\d+) *".r
-    val hasReg2 = " *(\\w+) +(\\d+) +mean *".r
-    val printReg = " *print_locals *".r
-    val helpReg = " *help *".r
-    cmd match{
-      case helpReg() =>
-        println(
-          s"""
-            |${ansi.a(Attribute.UNDERLINE).a("Global variables").a(Attribute.RESET).toString}:
-            |  draw[true|false] --allow draws or not
-            |  num_iter[Integer] --number of iterations in one simulation
-            |  num_sim[Integer] --number of simulations when asking for mean value and standard deviation
-            |  player[List Of Cards] --sets the list of cards the player has(may be partially filled)
-            |  com[List of Cards] --sets the list of community cards(also may be partially filled)
-            |  others[Multiple Lists of Cards] --sets the of cards for each opponent(same here)
-            |${ansi.a(Attribute.UNDERLINE).a("Commands").a(Attribute.RESET).toString}:
-            |  help --shows this message
-            |  print_locals --prints all local variables
-            |  draw [true|false] --sets corresponding global variable
-            |  num_iter [Integer] --sets corresponding global variable
-            |  num_sim [Integer] --sets corresponding global variable
-            |  player [List Of Cards] --sets corresponding global variable
-            |  com [List Of Cards] --sets corresponding global variable
-            |  others [Multiple Lists Of Cards] --sets corresponding global variable
-            |  cards [List Of Cards] [List Of Cards] [Multiple Lists Of Cards] --sets community, player and other players cards accordingly
-            |  sim --simulates the game using given global variables
-            |  sim mean --same as above but does it 'num_sim' times and returns mean value and deviation
-            |  [Name of Some Combination] [Integer] --calculates possibility of achieving given combination within given number of drawn cards
-            |  [Name Of Some Combination] [Integer] mean --same as above but does it 'num_sim' times and returns mean value and deviation
-            |${ansi.a(Attribute.UNDERLINE).a("Examples").a(Attribute.RESET).toString}:
-            |  draw false --do not count draws as positive outcomes in simulations
-            |  player () --sets all player cards to be unknown
-            |  player (${c"A♠".show}, ${c"A♣".show}) --sets player cards as given
-            |  others () (${c"K♥".show}) (${c"2♦".show}) --sets cards for each of the 3 players,
-            |   cards of the first player are unknown, cards of the other two are partially known
-            |  cards () () () () () () () --sets community cards, player cards and cards of the other 5 players to be unknown
-            |  num_iter 1000000
-            |  num_sim 100
-            |  sim mean --simulates the game a few times with given global variables
-            |  pair 5 --simulates the process of drawing 5 cards from the deck (assuming known community, player and other cards),
-            |    returns probability of getting a pair
-            |  royal_flush 7 mean -- :) oh boy, that's quit impossible, set num_iter and num_sim to be high enough for this,
-            |    to given better results
-            |${ansi.a(Attribute.UNDERLINE).a("How To Form A Card").a(Attribute.RESET).toString}
-            |  Value goes first then a suit without spaces: ${c"10♦".show}, ${c"J♥".show}
-            |  Possible values: 2, 3, 4, 5, 6, 7, 8, 9, 10, j, J, q, Q, k, K, a, A
-            |  Possible suits: ♠, s, ♣, c, ♦, d, ♥, h
-            |${ansi.a(Attribute.UNDERLINE).a("How To Form A List").a(Attribute.RESET).toString}
-            |  It may be empty: (), or filled with cards, separated by commas: (${c"A♠".show}, ${c"A♣".show})
-            |${ansi.a(Attribute.UNDERLINE).a("How To Form Multiple Lists").a(Attribute.RESET).toString}
-            |  Just stack them together separated by at least one space and no commas:
-            |    () (${c"A♠".show}, ${c"A♣".show}) ()
-            |
+  val initialState = CmdState(false, 100000, 10, List(), List(), List(List(), List()))
+
+
+  def processCmd(cmd : String) : StateT[IO, CmdState, Unit] = StateT{ state : CmdState =>
+    putStrLn("-------------") >> {
+      val cardsReg = " *cards +( *\\([^\\)]*\\) *) +( *\\([^\\)]*\\) *) +(.*) *".r
+      val playerReg = " *player +( *\\([^\\)]*\\) *) *".r
+      val comReg = " *com +( *\\([^\\)]*\\) *) *".r
+      val othersReg = "others *(.*) *".r
+      val allowDrawReg = " *draw (.*) *".r
+      val nReg = " *num_iter (.*) *".r
+      val kReg = " *num_sim (.*) *".r
+      val simReg = " *sim *".r
+      val simReg2 = " *sim +mean *".r
+      val hasReg = " *(\\w+) +(\\d+) *".r
+      val hasReg2 = " *(\\w+) +(\\d+) +mean *".r
+      val printReg = " *print_locals *".r
+      val helpReg = " *help *".r
+
+      (cmd match{
+        case helpReg() =>
+          IO.pure(state) product putStrLn(
+            s"""
+               |${ansi.a(Attribute.UNDERLINE).a("Global variables").a(Attribute.RESET).toString}:
+               |  draw[true|false] --allow draws or not
+               |  num_iter[Integer] --number of iterations in one simulation
+               |  num_sim[Integer] --number of simulations when asking for mean value and standard deviation
+               |  player[List Of Cards] --sets the list of cards the player has(may be partially filled)
+               |  com[List of Cards] --sets the list of community cards(also may be partially filled)
+               |  others[Multiple Lists of Cards] --sets the of cards for each opponent(same here)
+               |${ansi.a(Attribute.UNDERLINE).a("Commands").a(Attribute.RESET).toString}:
+               |  help --shows this message
+               |  print_locals --prints all local variables
+               |  draw [true|false] --sets corresponding global variable
+               |  num_iter [Integer] --sets corresponding global variable
+               |  num_sim [Integer] --sets corresponding global variable
+               |  player [List Of Cards] --sets corresponding global variable
+               |  com [List Of Cards] --sets corresponding global variable
+               |  others [Multiple Lists Of Cards] --sets corresponding global variable
+               |  cards [List Of Cards] [List Of Cards] [Multiple Lists Of Cards] --sets community, player and other players cards accordingly
+               |  sim --simulates the game using given global variables
+               |  sim mean --same as above but does it 'num_sim' times and returns mean value and deviation
+               |  [Name of Some Combination] [Integer] --calculates possibility of achieving given combination within given number of drawn cards
+               |  [Name Of Some Combination] [Integer] mean --same as above but does it 'num_sim' times and returns mean value and deviation
+               |${ansi.a(Attribute.UNDERLINE).a("Examples").a(Attribute.RESET).toString}:
+               |  draw false --do not count draws as positive outcomes in simulations
+               |  player () --sets all player cards to be unknown
+               |  player (${c"A♠".show}, ${c"A♣".show}) --sets player cards as given
+               |  others () (${c"K♥".show}) (${c"2♦".show}) --sets cards for each of the 3 players,
+               |   cards of the first player are unknown, cards of the other two are partially known
+               |  cards () () () () () () () --sets community cards, player cards and cards of the other 5 players to be unknown
+               |  num_iter 1000000
+               |  num_sim 100
+               |  sim mean --simulates the game a few times with given global variables
+               |  pair 5 --simulates the process of drawing 5 cards from the deck (assuming known community, player and other cards),
+               |    returns probability of getting a pair
+               |  royal_flush 7 mean -- :) oh boy, that's quit impossible, set num_iter and num_sim to be high enough for this,
+               |    to given better results
+               |${ansi.a(Attribute.UNDERLINE).a("How To Form A Card").a(Attribute.RESET).toString}
+               |  Value goes first then a suit without spaces: ${c"10♦".show}, ${c"J♥".show}
+               |  Possible values: 2, 3, 4, 5, 6, 7, 8, 9, 10, j, J, q, Q, k, K, a, A
+               |  Possible suits: ♠, s, ♣, c, ♦, d, ♥, h
+               |${ansi.a(Attribute.UNDERLINE).a("How To Form A List").a(Attribute.RESET).toString}
+               |  It may be empty: (), or filled with cards, separated by commas: (${c"A♠".show}, ${c"A♣".show})
+               |${ansi.a(Attribute.UNDERLINE).a("How To Form Multiple Lists").a(Attribute.RESET).toString}
+               |  Just stack them together separated by at least one space and no commas:
+               |    () (${c"A♠".show}, ${c"A♣".show}) ()
+               |
             |
           """.stripMargin)
-      //♠
-      //♥
-      //♦
-      //♣
-      case printReg() =>
-        println("player Cards: " + player.show)
-        println("community cards: " + community.show)
-        println("other players' cards: " + otherPlayers.show)
-        println("num_iter: " + numIter)
-        println("num_sim: " + numSim)
-        println("draw " + allowDraw)
-      case playerReg(player) =>
-        parseCardTuple(player) match{
-          case None => println("failed parsing player cards in 'player")
-          case Some(cards) => this.player = cards
-            println(s"player cards: ${cards.show}")
-        }
-      case comReg(com) =>
-        parseCardTuple(com) match{
-          case None => println("failed parsing community cards in 'com")
-          case Some(cards) => this.community = cards
-            println(s"community cards: ${cards.show}")
-        }
-      case othersReg(others) =>
-        val reg = " *\\([^\\)]*\\) *".r
-        reg.findAllIn(others).toList.map(parseCardTuple(_)).sequence match{
-          case None => println("failed parsing other players in 'others'")
-          case Some(othersL) =>
-            println(s"others cards: ${othersL.show}")
-            this.otherPlayers = othersL
-        }
-      case cardsReg(com, player, others) =>
-        val comL = parseCardTuple(com)
-        val playerL = parseCardTuple(player)
-        comL match{
-          case None => println("failed parsing community cards in 'cards'")
-          case Some(comL) =>
-            playerL match{
-              case None => println("failed parsing player cards in 'cards'")
-              case Some(playerL) =>
-                val reg = " *\\([^\\)]*\\) *".r
-                reg.findAllIn(others).toList.map(parseCardTuple(_)).sequence match{
-                  case None => println("failed parsing other players in 'cards'")
-                  case Some(othersL) =>
-                    println(s"community cards: ${comL.show}")
-                    println(s"player cards: ${playerL.show}")
-                    println(s"others cards: ${othersL.show}")
-                    this.player = playerL
-                    this.community = comL
-                    this.otherPlayers = othersL
+        case printReg() =>
+          for {
+            _ <- putStrLn("player Cards: " + state.player.show)
+            _ <- putStrLn("community cards: " + state.community.show)
+            _ <- putStrLn("other players' cards: " + state.otherPlayers.show)
+            _ <- putStrLn("num_iter: " + state.numIter)
+            _ <- putStrLn("num_sim: " + state. numSim)
+            _ <- putStrLn("draw " + state.allowDraw)
+          }yield state -> ()
+        case playerReg(player) =>
+          parseCardTuple(player) match{
+            case None => IO.pure(state) product putStrLn("failed parsing player cards in 'player")
+            case Some(cards) =>
+              IO.pure(state.lens(_.player).set(cards)) product putStrLn(s"player cards: ${cards.show}")
+          }
+        case comReg(com) =>
+          parseCardTuple(com) match{
+            case None => IO.pure(state) product putStrLn("failed parsing community cards in 'com")
+            case Some(cards) =>
+              IO.pure(state.lens(_.community).set(cards)) product putStrLn(s"community cards: ${cards.show}")
+          }
+        case othersReg(others) =>
+          val reg = " *\\([^\\)]*\\) *".r
+          reg.findAllIn(others).toList.map(parseCardTuple(_)).sequence match{
+            case None => IO.pure(state) product putStrLn("failed parsing other players in 'others'")
+            case Some(cards) =>
+              IO.pure(state.lens(_.otherPlayers).set(cards)) product putStrLn(s"others cards: ${cards.show}")
+          }
+        case cardsReg(com, player, others) =>
+          val comL = parseCardTuple(com)
+          val playerL = parseCardTuple(player)
+          comL match{
+            case None => IO.pure(state) product putStrLn("failed parsing community cards in 'cards'")
+            case Some(comL) =>
+              playerL match{
+                case None => IO.pure(state) product putStrLn("failed parsing player cards in 'cards'")
+                case Some(playerL) =>
+                  val reg = " *\\([^\\)]*\\) *".r
+                  reg.findAllIn(others).toList.map(parseCardTuple(_)).sequence match{
+                    case None => IO.pure(state) product putStrLn("failed parsing other players in 'cards'")
+                    case Some(othersL) =>
+                      for{
+                        _ <- putStrLn(s"community cards: ${comL.show}")
+                        _ <- putStrLn(s"player cards: ${playerL.show}")
+                        _ <- putStrLn(s"others cards: ${othersL.show}")
+                      } yield
+                        state
+                          .lens(_.player).set(playerL)
+                          .lens(_.community).set(comL)
+                          .lens(_.otherPlayers).set(othersL) -> ()
+                  }
+              }
+          }
+        case allowDrawReg(draw) =>
+          parseBoolean(draw) match{
+            case None => IO.pure(state) product putStrLn("failed parsing bool argument for 'draw'")
+            case Some(value) =>
+              IO.pure(state.lens(_.allowDraw).set(value)) product putStrLn("set allowDraw to '" + value + "'")
+          }
+
+        case nReg(n) =>
+          parseInt(n) match{
+            case None => IO.pure(state) product putStrLn("failed parsing Int argument for 'num_iter'")
+            case Some(value) =>
+              IO.pure(state.lens(_.numIter).set(value)) product putStrLn("set num_iter to '" + value + "'")
+          }
+        case kReg(k) =>
+          parseInt(k) match{
+            case None => IO.pure(state) product putStrLn("failed parsing Int argument for 'num_sim'")
+            case Some(value) =>
+              IO.pure(state.lens(_.numSim).set(value)) product putStrLn("set num_sim to '" + value + "'")
+          }
+        case simReg() =>
+          for{
+            _ <- putStrLn("simulating...")
+            _ <- putStrLn("probability: " + simulate(state.community, state.player, state.otherPlayers, state.allowDraw, state.numIter))
+          } yield state -> ()
+        case simReg2() =>
+          for{
+            _ <- putStrLn("simulating mean...")
+            sim <- IO.pure(simulate(state.community, state.player, state.otherPlayers, state.allowDraw, state.numIter, state.numSim))
+            _ <- putStrLn("mean probability: " + sim._1 + ", mean deviation: " + sim._2)
+          } yield state -> ()
+        case hasReg(name, within) if hasCombo.keys.toList.contains(name) =>
+          for{
+            _ <- putStrLn("simulating combo...")
+            sim <- IO.pure(simulateCombo(state.community, state.player, state.otherPlayers, hasCombo(name), within.toInt, state.numIter))
+            _ <- putStrLn("probability: " + sim)
+          } yield state -> ()
+        case hasReg2(name, within) if hasCombo.keys.toList.contains(name) =>
+          for{
+            _ <- putStrLn("simulating mean combo...")
+            sim <- IO.pure(simulateCombo(state.community, state.player, state.otherPlayers, hasCombo(name), within.toInt, state.numIter, state.numSim))
+            _ <- putStrLn("mean probability: " + sim._1 + ", mean deviation: " + sim._2)
+          } yield state -> ()
+        case _ => IO.pure(state) product putStrLn("bad command, enter: 'help' for details")
+      }) >>= {
+        case (state, _) =>
+          IO.pure(state) product putStrLn("-------------")
+      }
+    }
+
+  }
+
+
+  def loop() : IO[Unit] = {
+    putStrLn("Entering loop") >>
+      putStrLn("Type 'help' for details") >> {
+      val s = new Scanner(System.in)
+      def rec(state : CmdState = initialState) : IO[Unit] = {
+        IO{s.hasNext()} >>= { hasNext =>
+          if(hasNext){
+            IO{s.nextLine()} >>= {cmd =>
+              if(cmd == "quit" || cmd == "exit")
+                IO.pure(())
+              else
+                processCmd(cmd).run(state) >>= {
+                  case (state, _) => rec(state)
                 }
             }
+          }else{
+            IO.pure(())
+          }
         }
-      case allowDrawReg(draw) =>
-        try{
-          val d = draw.toBoolean
-          allowDraw = d
-          println("set allowDraw to '" + d + "'")
-        }catch{
-          case _ : IllegalArgumentException => println("failed parsing bool argument for 'draw'")
-        }
-      case nReg(n) =>
-        try{
-          val d = n.toInt
-          this.numIter = d
-          println("set n to '" + d + "'")
-        }catch{
-          case _ : NumberFormatException => println("failed parsing Int argument for 'num_iter'")
-        }
-      case kReg(k) =>
-        try{
-          val d = k.toInt
-          this.numSim = d
-          println("set k to '" + d + "'")
-        }catch{
-          case _ : NumberFormatException => println("failed parsing Int argument for 'num_sim'")
-        }
-      case simReg() =>
-        println("simulating...")
-        println("probability: " + simulate(community, player, otherPlayers, allowDraw, numIter))
-      case simReg2() =>
-        println("simulating mean...")
-        val sim = simulate(community, player, otherPlayers, allowDraw, numIter, numSim)
-        println("mean probability: " + sim._1 + ", mean deviation: " + sim._2)
-      case hasReg(name, within) if hasCombo.keys.toList.contains(name) =>
-        println("simulating combo...")
-        val sim = simulateCombo(community, player, otherPlayers, hasCombo(name), within.toInt, numIter)
-        println("probability: " + sim)
-      case hasReg2(name, within) if hasCombo.keys.toList.contains(name) =>
-        println("simulating mean combo...")
-        val sim = simulateCombo(community, player, otherPlayers, hasCombo(name), within.toInt, numIter, numSim)
-        println("mean probability: " + sim._1 + ", mean deviation: " + sim._2)
-      case _ => println("bad command, enter: 'help' for details")
-    }
-    println("-------------")
-  }
-
-  def loop() : Unit = {
-    println("Entering loop")
-    println("Type 'help' for details")
-    val s = new Scanner(System.in)
-    var shouldStop = false
-    while (!shouldStop && s.hasNext()){
-      val cmd = s.nextLine()
-      if(cmd == "quit" || cmd == "exit")
-        shouldStop = true
-      else{
-        println("vvvv")
-        processCommand(cmd)
       }
 
+      rec() >>
+        putStrLn("Byeee")
     }
-    println("Byeee")
   }
+
 
   def main(args : Array[String]) : Unit = {
     AnsiConsole.systemInstall()
     test()
 
-    loop()
+    loop().unsafeRunSync()
 
     AnsiConsole.systemUninstall()
 
