@@ -8,6 +8,7 @@ import cats.instances._
 import org.fusesource.jansi.AnsiConsole
 import org.fusesource.jansi.Ansi._
 import org.fusesource.jansi.Ansi.Color._
+import Lib._
 
 
 import scala.concurrent.duration.Duration
@@ -39,27 +40,6 @@ object PokerCalc {
   object Ace extends Value
 
   case class Card(suit : Suit, value : Value)
-
-  implicit class Pair2List[A](lhs : (A,A)){
-    def toList : List[A] = List(lhs._1, lhs._2)
-  }
-
-  implicit def showTuple3[A : Show, B : Show, C : Show] : Show[(A, B, C)] = {
-    case (a, b, c) => "( " + implicitly[Show[A]].show(a) + ", " + implicitly[Show[B]].show(b) + ", " + implicitly[Show[C]].show(c) + ")"
-  }
-
-  implicit class Tuple2Util[A, B](t : (A, B)){
-    def fstUpdated[R](f : A => R) : (R, B) = (f(t._1), t._2)
-    def sndUpdated[R](f : B => R) : (A, R) = (t._1, f(t._2))
-  }
-
-
-  def factorial(k : Int) : Long = if(k >= 2) (2 to k).product else 1
-
-  //n >= k
-  def binom(n : Int, k : Int) : Long ={
-    (n.toLong to (n.toLong - k.toLong + 1) by -1).product / factorial(k)
-  }
 
 
   def parseSuit(str : String) : Option[Suit] = {
@@ -241,7 +221,6 @@ object PokerCalc {
     cards.map{x => cards.filter(y => x != y && x.value == y.value).map(y => (x, y))}
   }
 
-  //checked
   def hasThreeOfAKind(cards : List[Card]) : Boolean = {
     findAllThreeOfAKind(cards).nonEmpty
   }
@@ -251,7 +230,6 @@ object PokerCalc {
     allPairs.zip(cards).map{case (pairs, card) => card :: pairs.map(_._2)}.filter(_.size >= 3)
   }
 
-  //checked
   def hasFourOfAKind(cards : List[Card]) : Boolean = {
     findAllFourOfAKind(cards).nonEmpty
   }
@@ -259,18 +237,6 @@ object PokerCalc {
   def findAllFourOfAKind(cards : List[Card]) : List[List[Card]] = {
     val allPairs = findPairsUniqueWithEachCard(cards)
     allPairs.zip(cards).map{case (pairs, card) => card :: pairs.map(_._2)}.filter(_.size >= 4)
-  }
-
-
-  def tailOption[A](l : List[A]) : Option[List[A]] = {
-    l match{
-      case _ :: xs => Some(xs)
-      case _ => None
-    }
-  }
-
-  implicit class ListUtils[A](lhs : List[A]){
-    def tailOption : Option[List[A]] = PokerCalc.tailOption(lhs)
   }
 
   //tested
@@ -308,7 +274,6 @@ object PokerCalc {
   def findAllFlush(cards : List[Card]) : List[List[Card]] = {
     suits.map(suit => cards.filter(_.suit == suit)).filter(_.size >= 5)
   }
-
 
   //no assumptions on cards
   def hasFullHouse(cards : List[Card]) : Boolean = {
@@ -363,85 +328,8 @@ object PokerCalc {
     List(all.filter(c => !combo.contains(c))) -> all
   }
 
-  def bestComboPair(winner : (List[List[Card]], List[Card]), looser : (List[List[Card]], List[Card])) : Option[Boolean] ={
-    val bestWinner = winner._1.tail.foldLeft(winner._1.head.sortBy(_.value).reverse){ //code duplication
-      case (a, b) =>
-        val A = a.sortBy(_.value).reverse
-        val B = b.sortBy(_.value).reverse
-        graterThan(A, B) match{
-          case Some(true) => A
-          case Some(false) => B
-          case None => A
-        }
-    }
-
-    val bestLooser = looser._1.tail.foldLeft(looser._1.head.sortBy(_.value).reverse){ //code duplication
-      case (a, b) =>
-        val A = a.sortBy(_.value).reverse
-        val B = b.sortBy(_.value).reverse
-        graterThan(A, B) match{
-          case Some(true) => A
-          case Some(false) => B
-          case None => A
-        }
-    }
-
-    graterThan(bestWinner, bestLooser).orElse(bestComboHighHand(otherCards(bestWinner, winner._2), otherCards(bestLooser, looser._2)))
-  }
-
-  def bestComboTwoPairs(winner : (List[List[Card]], List[Card]), looser : (List[List[Card]], List[Card])) : Option[Boolean] ={
-    val bestWinner = winner._1.tail.foldLeft(winner._1.head.sortBy(_.value).reverse){ //code duplication
-      case (a, b) =>
-        val A = a.sortBy(_.value).reverse
-        val B = b.sortBy(_.value).reverse
-        graterThan(A, B) match{
-          case Some(true) => A
-          case Some(false) => B
-          case None => A
-        }
-    }
-
-    val bestLooser = looser._1.tail.foldLeft(looser._1.head.sortBy(_.value).reverse){ //code duplication
-      case (a, b) =>
-        val A = a.sortBy(_.value).reverse
-        val B = b.sortBy(_.value).reverse
-        graterThan(A, B) match{
-          case Some(true) => A
-          case Some(false) => B
-          case None => A
-        }
-    }
-
-    graterThan(bestWinner, bestLooser).orElse(bestComboHighHand(otherCards(bestWinner, winner._2), otherCards(bestLooser, looser._2)))
-  }
-
-  def bestComboThreeOfAKind(winner : (List[List[Card]], List[Card]), looser : (List[List[Card]], List[Card])) : Option[Boolean] ={
-    val bestWinner = winner._1.tail.foldLeft(winner._1.head.sortBy(_.value).reverse){ //code duplication
-      case (a, b) =>
-        val A = a.sortBy(_.value).reverse
-        val B = b.sortBy(_.value).reverse
-        graterThan(A, B) match{
-          case Some(true) => A
-          case Some(false) => B
-          case None => A
-        }
-    }
-
-    val bestLooser = looser._1.tail.foldLeft(looser._1.head.sortBy(_.value).reverse){ //code duplication
-      case (a, b) =>
-        val A = a.sortBy(_.value).reverse
-        val B = b.sortBy(_.value).reverse
-        graterThan(A, B) match{
-          case Some(true) => A
-          case Some(false) => B
-          case None => A
-        }
-    }
-
-    graterThan(bestWinner, bestLooser).orElse(bestComboHighHand(otherCards(bestWinner, winner._2), otherCards(bestLooser, looser._2)))
-  }
-
-  def graterThan(a : List[Card], b : List[Card]) : Option[Boolean] = {
+  //finds which list of cards is greater, comparing pairs of elements taken from both lists one by one
+  def greaterThan(a : List[Card], b : List[Card]) : Option[Boolean] = {
     import valueOrdering._
     (a, b) match{
       case (a :: as, b :: bs) =>
@@ -450,38 +338,52 @@ object PokerCalc {
         else if(a.value < b.value)
           Some(false)
         else
-          graterThan(as, bs)
+          greaterThan(as, bs)
       case _ => None
     }
   }
 
+  //fst value of the tuple is all available combos, snd value is all cards
+  private def bestAvailableCombo(player : (List[List[Card]], List[Card])) : List[Card] = {
+    player._1.tail.foldLeft(player._1.head.sortBy(_.value).reverse){ //code duplication
+      case (a, b) =>
+        val A = a.sortBy(_.value).reverse
+        val B = b.sortBy(_.value).reverse
+        greaterThan(A, B) match{
+          case Some(true) => A
+          case Some(false) => B
+          case None => A
+        }
+    }
+  }
+
+  def bestComboPair(winner : (List[List[Card]], List[Card]), looser : (List[List[Card]], List[Card])) : Option[Boolean] ={
+    val bestWinner = bestAvailableCombo(winner)
+    val bestLooser = bestAvailableCombo(looser)
+
+    greaterThan(bestWinner, bestLooser).orElse(bestComboHighHand(otherCards(bestWinner, winner._2), otherCards(bestLooser, looser._2)))
+  }
+
+  def bestComboTwoPairs(winner : (List[List[Card]], List[Card]), looser : (List[List[Card]], List[Card])) : Option[Boolean] ={
+    val bestWinner = bestAvailableCombo(winner)
+    val bestLooser = bestAvailableCombo(looser)
+
+    greaterThan(bestWinner, bestLooser).orElse(bestComboHighHand(otherCards(bestWinner, winner._2), otherCards(bestLooser, looser._2)))
+  }
+
+  def bestComboThreeOfAKind(winner : (List[List[Card]], List[Card]), looser : (List[List[Card]], List[Card])) : Option[Boolean] ={
+    val bestWinner = bestAvailableCombo(winner)
+    val bestLooser = bestAvailableCombo(looser)
+
+    greaterThan(bestWinner, bestLooser).orElse(bestComboHighHand(otherCards(bestWinner, winner._2), otherCards(bestLooser, looser._2)))
+  }
+
+
   def bestComboFlush(winner : (List[List[Card]], List[Card]), looser : (List[List[Card]], List[Card])) : Option[Boolean] ={
-    val bestWinner = winner._1.tail.foldLeft(winner._1.head.sortBy(_.value).reverse){ //code duplication
-      case (a, b) =>
-        val A = a.sortBy(_.value).reverse
-        val B = b.sortBy(_.value).reverse
-        graterThan(A, B) match{
-          case Some(true) => A
-          case Some(false) => B
-          case None => A
-        }
-    }
+    val bestWinner = bestAvailableCombo(winner)
+    val bestLooser = bestAvailableCombo(looser)
 
-    val bestLooser = looser._1.tail.foldLeft(looser._1.head.sortBy(_.value).reverse){ //code duplication
-      case (a, b) =>
-        val A = a.sortBy(_.value).reverse
-        val B = b.sortBy(_.value).reverse
-        graterThan(A, B) match{
-          case Some(true) => A
-          case Some(false) => B
-          case None => A
-        }
-    }
-
-    //println(s"bestWinner ${bestWinner.show}")
-    //println(s"bestLooser ${bestLooser.show}")
-
-    graterThan(bestWinner, bestLooser) //no kicker
+    greaterThan(bestWinner, bestLooser) //no kicker
   }
 
   def bestComboStraight(winner : (List[List[Card]], List[Card]), looser : (List[List[Card]], List[Card])) : Option[Boolean] ={
@@ -493,55 +395,17 @@ object PokerCalc {
   }
 
   def bestComboFullHouse(winner : (List[List[Card]], List[Card]), looser : (List[List[Card]], List[Card])) : Option[Boolean] ={
-    val bestWinner = winner._1.tail.foldLeft(winner._1.head.sortBy(_.value).reverse){ //code duplication
-      case (a, b) =>
-        val A = a.sortBy(_.value).reverse
-        val B = b.sortBy(_.value).reverse
-        graterThan(A, B) match{
-          case Some(true) => A
-          case Some(false) => B
-          case None => A
-        }
-    }
+    val bestWinner = bestAvailableCombo(winner)
+    val bestLooser = bestAvailableCombo(looser)
 
-    val bestLooser = looser._1.tail.foldLeft(looser._1.head.sortBy(_.value).reverse){ //code duplication
-      case (a, b) =>
-        val A = a.sortBy(_.value).reverse
-        val B = b.sortBy(_.value).reverse
-        graterThan(A, B) match{
-          case Some(true) => A
-          case Some(false) => B
-          case None => A
-        }
-    }
-
-    graterThan(bestWinner, bestLooser) //no kicker
+    greaterThan(bestWinner, bestLooser) //no kicker
   }
 
   def bestComboFourOfAKind(winner : (List[List[Card]], List[Card]), looser : (List[List[Card]], List[Card])) : Option[Boolean] ={
-    val bestWinner = winner._1.tail.foldLeft(winner._1.head.sortBy(_.value).reverse){ //code duplication
-      case (a, b) =>
-        val A = a.sortBy(_.value).reverse
-        val B = b.sortBy(_.value).reverse
-        graterThan(A, B) match{
-          case Some(true) => A
-          case Some(false) => B
-          case None => A
-        }
-    }
+    val bestWinner = bestAvailableCombo(winner)
+    val bestLooser = bestAvailableCombo(looser)
 
-    val bestLooser = looser._1.tail.foldLeft(looser._1.head.sortBy(_.value).reverse){ //code duplication
-      case (a, b) =>
-        val A = a.sortBy(_.value).reverse
-        val B = b.sortBy(_.value).reverse
-        graterThan(A, B) match{
-          case Some(true) => A
-          case Some(false) => B
-          case None => A
-        }
-    }
-
-    graterThan(bestWinner, bestLooser).orElse(bestComboHighHand(otherCards(bestWinner, winner._2), otherCards(bestLooser, looser._2)))
+    greaterThan(bestWinner, bestLooser).orElse(bestComboHighHand(otherCards(bestWinner, winner._2), otherCards(bestLooser, looser._2)))
   }
 
   def bestComboRoyalFlush(winner : (List[List[Card]], List[Card]), looser : (List[List[Card]], List[Card])) : Option[Boolean] ={
@@ -621,7 +485,7 @@ object PokerCalc {
   }
 
 
-  //all arguments may be underfilled
+  //each one of the arguments may be partially left unfilled
   def wins(communityCards : List[Card], playerCards : List[Card], opponentsCards : List[List[Card]], allowDraw : Boolean) : Boolean = {
     val allKnownCards = communityCards ++ playerCards ++ opponentsCards.flatten
     val deck0 = fullDeck.filterNot(allKnownCards.contains(_))
