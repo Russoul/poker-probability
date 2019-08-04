@@ -7,3 +7,6 @@ Toy project that is all about calculating different probabilities in poker, main
 3. Make sure it is in your `path`.  
 4. Clone this project: `git clone https://github.com/Russoul/poker-probability.git`.  
 5. Run: `sbt run` in project's directory.  
+
+
+![screen_shot](img/screen_help.png)
